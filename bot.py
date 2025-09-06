@@ -13,6 +13,7 @@ from datetime import datetime
 import time
 from telebot import types
 import os
+import pyotp
 from typing import Optional, Dict, Any
 
 # Configure logging
@@ -164,6 +165,7 @@ def create_main_menu():
     """Create main menu keyboard"""
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
     keyboard.row("🔐 Get OTP Code", "📊 Check Status")
+    keyboard.row("2FA Code")
     keyboard.row("❓ Help", "⚙️ Settings")
     return keyboard
 
@@ -209,6 +211,9 @@ def handle_help(message):
 3. Send your data in format: `refresh_token|client_id`
 4. Select the service you want OTP for
 5. Wait for the OTP code
+
+🔑 *Generate 2FA Codes:*
+• Click "2FA Code" and send your secret key
 
 📝 *Input Format Example:*
 ```
@@ -310,6 +315,35 @@ def handle_get_otp_button(message):
         parse_mode='Markdown'
     )
     bot.register_next_step_handler(msg, process_data_input_step)
+
+@bot.message_handler(func=lambda message: message.text == "2FA Code")
+def handle_2fa_button(message):
+    """Handle 2FA Code button"""
+    msg = bot.reply_to(
+        message,
+        "🔑 *Send your 2FA key:*",
+        parse_mode='Markdown'
+    )
+    bot.register_next_step_handler(msg, process_2fa_key)
+
+def process_2fa_key(message):
+    """Generate and send TOTP code based on user-provided key"""
+    secret = message.text.strip().replace(' ', '')
+    try:
+        code = pyotp.TOTP(secret).now()
+        bot.reply_to(
+            message,
+            f"✅ *Your 2FA code:* `{code}`",
+            parse_mode='Markdown',
+            reply_markup=create_main_menu()
+        )
+    except Exception:
+        msg = bot.reply_to(
+            message,
+            "❌ *Invalid 2FA key.* Please send a valid key:",
+            parse_mode='Markdown'
+        )
+        bot.register_next_step_handler(msg, process_2fa_key)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('service_'))
 def handle_service_selection(call):
