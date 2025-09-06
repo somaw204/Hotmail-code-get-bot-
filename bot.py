@@ -39,6 +39,44 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # User data storage (in production, use a database)
 user_sessions = {}
 
+# Admin and bot status configuration
+ADMIN_ID = 5850931697
+BOT_STATUS_FILE = 'bot_status.json'
+
+
+def load_bot_status() -> bool:
+    """Load bot enabled status from file."""
+    try:
+        with open(BOT_STATUS_FILE, 'r') as f:
+            data = json.load(f)
+            return data.get('enabled', True)
+    except Exception:
+        return True
+
+
+def save_bot_status(enabled: bool) -> None:
+    """Persist bot enabled status to file."""
+    try:
+        with open(BOT_STATUS_FILE, 'w') as f:
+            json.dump({'enabled': enabled}, f)
+    except Exception as e:
+        logger.error(f"Failed to save bot status: {e}")
+
+
+bot_enabled = load_bot_status()
+
+
+@bot.message_handler(func=lambda message: not bot_enabled and message.from_user.id != ADMIN_ID)
+def handle_bot_disabled(message):
+    """Handle messages when the bot is turned off."""
+    bot.reply_to(message, "Bot is on Off Contact @SomawDev to turn it on")
+
+
+@bot.callback_query_handler(func=lambda call: not bot_enabled and call.from_user.id != ADMIN_ID)
+def handle_callback_bot_disabled(call):
+    """Handle callback queries when the bot is turned off."""
+    bot.answer_callback_query(call.id, "Bot is on Off Contact @SomawDev to turn it on", show_alert=True)
+
 class OTPBot:
     def __init__(self):
         self.supported_services = [
@@ -172,6 +210,54 @@ def create_main_menu():
     keyboard.row("❓ Help", "⚙️ Settings")
     return keyboard
 
+
+def create_admin_keyboard():
+    """Create inline keyboard for admin panel"""
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton("Bot ON", callback_data="admin_bot_on"),
+        types.InlineKeyboardButton("Bot OFF", callback_data="admin_bot_off"),
+    )
+    return keyboard
+
+
+@bot.message_handler(commands=['admin'])
+def handle_admin(message):
+    """Display admin panel to authorized user"""
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ You are not authorized to use this command.")
+        return
+
+    status = "🟢 ON" if bot_enabled else "🔴 OFF"
+    bot.reply_to(
+        message,
+        f"⚙️ *Admin Panel*\n\nCurrent bot status: {status}",
+        parse_mode='Markdown',
+        reply_markup=create_admin_keyboard(),
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data in ['admin_bot_on', 'admin_bot_off'])
+def handle_admin_toggle(call):
+    """Handle admin bot status toggling"""
+    if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "⛔ Unauthorized", show_alert=True)
+        return
+
+    global bot_enabled
+    bot_enabled = call.data == 'admin_bot_on'
+    save_bot_status(bot_enabled)
+
+    status = "🟢 ON" if bot_enabled else "🔴 OFF"
+    bot.edit_message_text(
+        f"⚙️ *Admin Panel*\n\nCurrent bot status: {status}",
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode='Markdown',
+        reply_markup=create_admin_keyboard(),
+    )
+    bot.answer_callback_query(call.id, f"Bot turned {'ON' if bot_enabled else 'OFF'}")
+
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     """Handle /start command"""
@@ -272,11 +358,22 @@ def handle_getotp_command(message):
 def process_data_input_step(message):
     """Process direct data string input"""
     user_id = message.from_user.id
+    # Allow commands to interrupt the data entry flow
 
     if message.text.startswith('/'):
         user_sessions.pop(user_id, None)
         if message.text == '/start':
             handle_start(message)
+        elif message.text == '/admin':
+            handle_admin(message)
+        elif message.text == '/help':
+            handle_help(message)
+        elif message.text == '/status':
+            handle_status_command(message)
+        elif message.text == '/getotp':
+            handle_getotp_command(message)
+
+        main
         return
 
     parsed_data = otp_bot.parse_user_input(message.text)
