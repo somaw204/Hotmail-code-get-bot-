@@ -263,7 +263,8 @@ def handle_getotp_command(message):
         "📝 *Send your data string*\n\n"
         "Just paste your data in this format:\n"
         "`email|password|refresh_token|client_id`\n\n"
-        "The bot will automatically extract everything and get your Facebook OTP! 🚀",
+        "The bot will automatically extract everything and get your Facebook OTP! 🚀\n\n"
+        "Send /cancel to abort.",
         parse_mode='Markdown'
     )
     bot.register_next_step_handler(msg, process_data_input_step)
@@ -271,13 +272,21 @@ def handle_getotp_command(message):
 def process_data_input_step(message):
     """Process direct data string input"""
     user_id = message.from_user.id
+
+    if message.text.startswith('/'):
+        user_sessions.pop(user_id, None)
+        if message.text == '/start':
+            handle_start(message)
+        return
+
     parsed_data = otp_bot.parse_user_input(message.text)
 
     if not parsed_data or 'email' not in parsed_data:
         msg = bot.reply_to(
             message,
             "❌ *Invalid data format!*\n\n"
-            "Please use: `email|password|refresh_token|client_id`",
+            "Please use: `email|password|refresh_token|client_id`\n\n"
+            "Send /cancel to abort.",
             parse_mode='Markdown'
         )
         bot.register_next_step_handler(msg, process_data_input_step)
@@ -314,7 +323,8 @@ def handle_get_otp_button(message):
         "📝 *Send your data string*\n\n"
         "Just paste your data in this format:\n"
         "`email|password|refresh_token|client_id`\n\n"
-        "The bot will automatically extract everything and get your Facebook OTP! 🚀",
+        "The bot will automatically extract everything and get your Facebook OTP! 🚀\n\n"
+        "Send /cancel to abort.",
         parse_mode='Markdown'
     )
     bot.register_next_step_handler(msg, process_data_input_step)
