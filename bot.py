@@ -357,6 +357,21 @@ def handle_getotp_command(message):
 def process_data_input_step(message):
     """Process direct data string input"""
     user_id = message.from_user.id
+    # Allow commands to interrupt the data entry flow
+    if message.text.startswith('/'):
+        user_sessions.pop(user_id, None)
+        if message.text == '/start':
+            handle_start(message)
+        elif message.text == '/admin':
+            handle_admin(message)
+        elif message.text == '/help':
+            handle_help(message)
+        elif message.text == '/status':
+            handle_status_command(message)
+        elif message.text == '/getotp':
+            handle_getotp_command(message)
+        return
+
     parsed_data = otp_bot.parse_user_input(message.text)
 
     if not parsed_data or 'email' not in parsed_data:
