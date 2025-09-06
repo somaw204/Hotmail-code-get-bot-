@@ -16,6 +16,8 @@ import os
 import pyotp
 from typing import Optional, Dict, Any
 
+from facebook_account import generate_account
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -165,6 +167,7 @@ def create_main_menu():
     """Create main menu keyboard"""
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
     keyboard.row("🔐 Get OTP Code", "📊 Check Status")
+    keyboard.row("Generate Facebook account")
     keyboard.row("2FA Code")
     keyboard.row("❓ Help", "⚙️ Settings")
     return keyboard
@@ -344,6 +347,52 @@ def process_2fa_key(message):
             parse_mode='Markdown'
         )
         bot.register_next_step_handler(msg, process_2fa_key)
+
+
+@bot.message_handler(func=lambda message: message.text == "Generate Facebook account")
+def handle_generate_fb_button(message):
+    """Start Facebook account generation flow"""
+    user_id = message.from_user.id
+    user_sessions[user_id] = {'step': 'fb_identifier'}
+    msg = bot.reply_to(message, "📧 Enter email or phone number:")
+    bot.register_next_step_handler(msg, process_fb_identifier)
+
+
+def process_fb_identifier(message):
+    """Ask for password after receiving identifier"""
+    user_id = message.from_user.id
+    identifier = message.text.strip()
+    user_sessions[user_id] = {'step': 'fb_password', 'identifier': identifier}
+    msg = bot.reply_to(message, "🔑 Enter password:")
+    bot.register_next_step_handler(msg, process_fb_password)
+
+
+def process_fb_password(message):
+    """Generate Facebook account and send result"""
+    user_id = message.from_user.id
+    session_data = user_sessions.get(user_id)
+    if not session_data or session_data.get('step') != 'fb_password':
+        bot.reply_to(message, "❌ Session expired. Please start over.", reply_markup=create_main_menu())
+        return
+
+    identifier = session_data['identifier']
+    password = message.text.strip()
+    result = generate_account(identifier, password)
+
+    if result.get('success'):
+        bot.reply_to(
+            message,
+            f"✅ Account created!\n\nEmail/Phone: {identifier}\nPassword: {password}\nUser ID: {result.get('c_user')}\nCookies: {result.get('cookies')}",
+            reply_markup=create_main_menu(),
+        )
+    else:
+        bot.reply_to(
+            message,
+            f"❌ Failed to create account: {result.get('error', 'Unknown error')}",
+            reply_markup=create_main_menu(),
+        )
+
+    user_sessions.pop(user_id, None)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('service_'))
 def handle_service_selection(call):
