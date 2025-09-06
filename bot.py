@@ -46,27 +46,41 @@ class OTPBot:
         
     def parse_user_input(self, input_text: str) -> Optional[Dict[str, str]]:
         """
-        Parse user input in format: refresh_token|client_id
+        Parse user-provided data.
+
+        Supports two formats:
+        1. ``email|password|refresh_token|client_id``
+        2. ``refresh_token|client_id``
         """
         try:
             if '|' not in input_text:
                 return None
-                
-            parts = input_text.strip().split('|')
-            if len(parts) != 2:
-                return None
-                
-            refresh_token = parts[0].strip()
-            client_id = parts[1].strip()
-            
-            # Basic validation
-            if not refresh_token or not client_id:
-                return None
-                
-            return {
-                'refresh_token': refresh_token,
-                'client_id': client_id
-            }
+
+            parts = [p.strip() for p in input_text.strip().split('|')]
+
+            # Full data input
+            if len(parts) == 4:
+                email, password, refresh_token, client_id = parts
+                if not all([email, password, refresh_token, client_id]):
+                    return None
+                return {
+                    'email': email,
+                    'password': password,
+                    'refresh_token': refresh_token,
+                    'client_id': client_id
+                }
+
+            # Token-only input
+            if len(parts) == 2:
+                refresh_token, client_id = parts
+                if not all([refresh_token, client_id]):
+                    return None
+                return {
+                    'refresh_token': refresh_token,
+                    'client_id': client_id
+                }
+
+            return None
         except Exception as e:
             logger.error(f"Error parsing input: {e}")
             return None
@@ -246,83 +260,56 @@ def handle_getotp_command(message):
     )
     bot.register_next_step_handler(msg, process_data_input_step)
 
+def process_data_input_step(message):
+    """Process direct data string input"""
+    user_id = message.from_user.id
+    parsed_data = otp_bot.parse_user_input(message.text)
+
+    if not parsed_data or 'email' not in parsed_data:
+        msg = bot.reply_to(
+            message,
+            "❌ *Invalid data format!*\n\n"
+            "Please use: `email|password|refresh_token|client_id`",
+            parse_mode='Markdown'
+        )
+        bot.register_next_step_handler(msg, process_data_input_step)
+        return
+
+    user_sessions[user_id] = parsed_data
+    user_sessions[user_id]['step'] = 'service'
+
+    masked_email = f"{parsed_data['email'][:3]}***@{parsed_data['email'].split('@')[1]}"
+    masked_password = "*" * len(parsed_data['password'])
+    masked_token = f"{parsed_data['refresh_token'][:10]}...{parsed_data['refresh_token'][-4:]}"
+    masked_client = f"{parsed_data['client_id'][:8]}...{parsed_data['client_id'][-4:]}"
+
+    bot.reply_to(
+        message,
+        f"🚀 *Data parsed successfully!*\n\n"
+        f"📧 Email: `{masked_email}`\n"
+        f"🔑 Password: `{masked_password}`\n"
+        f"🎫 Token: `{masked_token}`\n"
+        f"🆔 Client ID: `{masked_client}`\n\n"
+        f"🎯 *Select service to get OTP:*",
+        parse_mode='Markdown',
+        reply_markup=create_service_keyboard()
+    )
+
 @bot.message_handler(func=lambda message: message.text == "🔐 Get OTP Code")
 def handle_get_otp_button(message):
     """Handle Get OTP Code button"""
     user_id = message.from_user.id
-    user_sessions[user_id] = {'step': 'email'}
-    
+    user_sessions[user_id] = {'step': 'data_input'}
+
     msg = bot.reply_to(
         message,
-        "📧 *Step 1: Enter your email address*\n\n"
-        "Please enter the email address associated with your account:",
+        "📝 *Send your data string*\n\n"
+        "Just paste your data in this format:\n"
+        "`email|password|refresh_token|client_id`\n\n"
+        "The bot will automatically extract everything and get your Facebook OTP! 🚀",
         parse_mode='Markdown'
     )
-    bot.register_next_step_handler(msg, process_email_step)
-
-def process_email_step(message):
-    """Process email input step"""
-    user_id = message.from_user.id
-    email = message.text.strip()
-    
-    # Basic email validation
-    if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
-        msg = bot.reply_to(
-            message,
-            "❌ *Invalid email format!*\n\n"
-            "Please enter a valid email address:",
-            parse_mode='Markdown'
-        )
-        bot.register_next_step_handler(msg, process_email_step)
-        return
-    
-    user_sessions[user_id] = {'step': 'tokens', 'email': email}
-    
-    msg = bot.reply_to(
-        message,
-        f"✅ *Email saved: {email}*\n\n"
-        "📝 *Step 2: Enter your tokens*\n\n"
-        "Please send your data in this format:\n"
-        "`refresh_token|client_id`\n\n"
-        "*Example:*\n"
-        "`M.C518_BAY.0.U.-CtLyFkv...$$|dbc8e03a-b00c-46bd-ae65-b683e7707cb0`",
-        parse_mode='Markdown'
-    )
-    bot.register_next_step_handler(msg, process_tokens_step)
-
-def process_tokens_step(message):
-    """Process tokens input step"""
-    user_id = message.from_user.id
-    
-    if user_id not in user_sessions:
-        bot.reply_to(message, "❌ Session expired. Please start over with /getotp")
-        return
-    
-    parsed_data = otp_bot.parse_user_input(message.text)
-    
-    if not parsed_data:
-        msg = bot.reply_to(
-            message,
-            "❌ *Invalid format!*\n\n"
-            "Please use the correct format:\n"
-            "`refresh_token|client_id`\n\n"
-            "Make sure to separate them with a single `|` character.",
-            parse_mode='Markdown'
-        )
-        bot.register_next_step_handler(msg, process_tokens_step)
-        return
-    
-    user_sessions[user_id].update(parsed_data)
-    user_sessions[user_id]['step'] = 'service'
-    
-    bot.reply_to(
-        message,
-        "✅ *Tokens saved successfully!*\n\n"
-        "🎯 *Step 3: Select Service*\n\n"
-        "Please select the service you want to get OTP for:",
-        parse_mode='Markdown',
-        reply_markup=create_service_keyboard()
-    )
+    bot.register_next_step_handler(msg, process_data_input_step)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('service_'))
 def handle_service_selection(call):
